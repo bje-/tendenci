@@ -8,9 +8,11 @@ from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 from django.contrib import messages
 from django.contrib.admin import SimpleListFilter
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, HttpResponseRedirect
 from django.utils.safestring import mark_safe
 from django.utils import timezone
+from django.urls import reverse
+from django.shortcuts import get_object_or_404
 
 from tendenci.apps.event_logs.models import EventLog
 from tendenci.apps.perms.admin import TendenciBaseModelAdmin
@@ -18,8 +20,11 @@ from tendenci.apps.perms.utils import update_perms_and_save
 from tendenci.apps.profiles.models import Profile
 from tendenci.apps.profiles.forms import ProfileAdminForm
 from tendenci.apps.profiles.utils import iter_users
-from tendenci.apps.theme.templatetags.static import static
-
+from tendenci.apps.theme.templatetags.tendenci_static import static
+try:
+    from tendenci.apps.activities.models import Activity
+except:
+    Activity = None
 
 class ProfileAdmin(TendenciBaseModelAdmin):
     list_display = ('username', 'account_id', 'member_number', 'first_name', 'last_name', 'get_email', 'is_active', 'is_superuser', 'get_last_login')
@@ -78,6 +83,27 @@ class ProfileAdmin(TendenciBaseModelAdmin):
     form = ProfileAdminForm
 
     ordering = ('user__last_name', 'user__first_name')
+
+    def delete_view(self, request, object_id, extra_context=None):
+        """
+        Redirects single profile deletion to the User deletion.
+        The auth User deletion page presents more detailed info on
+        what related items will be deleted along with the user object.
+        """
+        profile = get_object_or_404(Profile, id=object_id)
+        user_delete_url = reverse(
+                    'admin:auth_user_delete', 
+                    args=[profile.user.pk]
+                )
+        return HttpResponseRedirect(user_delete_url)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if 'delete_selected' in actions:
+            del actions['delete_selected']
+        if 'soft_delete_selected' in actions:
+            del actions['soft_delete_selected']
+        return actions
 
     def get_object(self, request, object_id, from_field=None):
         obj = super().get_object(request, object_id, from_field=from_field)
@@ -174,6 +200,17 @@ def export_selected_users(modeladmin, request, queryset):
     return response
 
 
+if Activity:
+    class ActivityInline(admin.TabularInline):
+        model = Activity
+        fk_name = 'user'
+        fields = ('activity_name', 'start_date', 'end_date', 'status_detail')
+        extra = 0
+        verbose_name = 'Activity'
+        verbose_name_plural = 'Activities'
+        ordering = ("-start_date",)
+
+
 class MyUserAdmin(UserAdmin):
     list_display = ('id', 'view_profile', 'username', 'email', 'first_name', 'last_name',
                     'show_member_number', 'is_staff', 'is_superuser', 'is_active', 'last_login')
@@ -183,20 +220,22 @@ class MyUserAdmin(UserAdmin):
         # Removing the permission part
         # (_('Permissions'), {'fields': ('is_staff', 'is_active', 'is_superuser', 'user_permissions')}),
         (_('Permissions'), {'fields': ('user_permissions',)}),
-        (_('Important dates'), {'fields': ('last_login', 'date_joined')}),
+        #(_('Important dates'), {'fields': ('last_login', 'date_joined')}),
     )
     list_filter = ("is_staff", "is_superuser", "is_active", LastLoginFilter)
     ordering = ('-id',)
     actions = [
         export_selected_users
     ]
+    if Activity:
+        inlines = (ActivityInline, )
 
     @mark_safe
     def view_profile(self, obj):
         if hasattr(obj, 'profile'):
             link_icon = static('images/icons/external_16x16.png')
             return f'<a href="{obj.profile.get_absolute_url()}" title="{obj.first_name} {obj.last_name}"><img src="{link_icon}" alt="external_16x16" title="external icon"/></a>'
-    
+
     def show_member_number(self, instance):
         [member_number] = Profile.objects.filter(user=instance).values_list('member_number', flat=True)[:1] or ['']
         return member_number

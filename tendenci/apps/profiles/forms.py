@@ -1,4 +1,3 @@
-import datetime
 import re
 import chardet
 
@@ -8,6 +7,7 @@ from django.contrib.auth.models import User
 from django.utils.translation import gettext_lazy as _
 from django.forms.widgets import SelectDateWidget
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 from django.db.models import Q
 
 from tendenci.apps.base.fields import EmailVerificationField, CountrySelectField, StateSelectField
@@ -26,7 +26,7 @@ from tendenci.apps.industries.models import Industry
 from tendenci.apps.files.validators import FileValidator
 
 attrs_dict = {'class': 'required' }
-THIS_YEAR = datetime.date.today().year
+THIS_YEAR = timezone.now().year
 # this is the list of apps whose permissions will be displayed on the permission edit page
 APPS = ('profiles', 'user_groups', 'articles',
         'news', 'pages', 'jobs', 'locations',
@@ -118,7 +118,7 @@ class ProfileSearchForm(FormControlWidgetMixin, forms.Form):
             self.fields['industry'].widget.attrs.update({'class': 'form-control'})
         else:
             del self.fields['industry']
-            
+
 #         for field in self.fields:
 #             if field not in ['search_criteria', 'search_text', 'search_method', 'member_only']:
 #                 self.fields[field].widget.attrs.update({'class': 'form-control'})
@@ -324,7 +324,7 @@ class ProfileForm(TendenciBaseForm):
 
             if self.user_current.profile.is_superuser and self.user_current == self.user_this:
                 self.fields['security_level'].choices = (('superuser',_('Superuser')),)
-            
+
             if self.user_current == self.user_this:
                 del self.fields['interactive']
 
@@ -369,6 +369,8 @@ class ProfileForm(TendenciBaseForm):
                 self.fields['region'].queryset = region_queryset
                 if not get_setting('module', 'invoices', 'taxrateuseregions'):
                     self.fields['region'].required = False
+
+        self.fields['hide_email'].help_text = _('If you are hiding email it is best not to make your email your username.')
 
         # we make first_name, last_name, email, username and password as required field regardless
         # the rest of fields will be decided by the setting - UsersRequiredFields
@@ -795,7 +797,7 @@ class ValidatingPasswordChangeForm(auth.forms.PasswordChangeForm):
                 self.password_help_text = self.fields['new_password1'].help_text
             else:
                 self.password_help_text = PASSWORD_HELP_TEXT_DEFAULT
-            
+
         self.fields['new_password1'].help_text = self.password_help_text
 
     def clean_new_password1(self):
@@ -811,7 +813,7 @@ class ValidatingPasswordChangeForm(auth.forms.PasswordChangeForm):
 
 class UserMembershipForm(TendenciBaseForm):
     join_dt = forms.SplitDateTimeField(label=_('Subscribe Date/Time'),
-        initial=datetime.datetime.now())
+        initial=timezone.now())
     expire_dt = forms.SplitDateTimeField(label=_('Expire Date/Time'), required=False)
     status_detail = forms.ChoiceField(
         choices=(('active',_('Active')),('inactive',_('Inactive')), ('pending',_('Pending')),))
@@ -933,6 +935,7 @@ class UserUploadForm(forms.ModelForm):
                      Group.objects.filter(status=True, status_detail='active'
                                           ).exclude(type__in=['membership', 'system_generated'])]
         self.fields['group_id'].choices = GROUP_CHOICES
+        self.fields['exclude_is_active'].initial = True
 
     def clean_upload_file(self):
         key = self.cleaned_data['key']

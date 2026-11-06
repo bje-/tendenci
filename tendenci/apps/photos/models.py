@@ -26,6 +26,7 @@ from django.utils.encoding import smart_str, force_str
 from functools import partial as curry
 from django.utils.translation import gettext_lazy as _
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 import simplejson
 import requests
 
@@ -47,7 +48,7 @@ from tendenci.apps.photos.utils import EXIF
 from tendenci.apps.photos.utils.reflection import add_reflection
 from tendenci.apps.photos.utils.watermark import apply_watermark
 from tendenci.libs.abstracts.models import OrderingBaseModel
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 from tendenci.apps.site_settings.utils import get_setting
 
 
@@ -351,7 +352,7 @@ class ImageModel(models.Model):
             except:
                 pass
         if self.date_taken is None:
-            self.date_taken = datetime.now()
+            self.date_taken = timezone.now()
         if self._get_pk_val():
             self.clear_cache()
         super().save(*args, **kwargs)
@@ -777,14 +778,14 @@ class Image(OrderingBaseModel, ImageModel, TendenciBaseModel):
             self.guid = str(uuid.uuid4())
         if not self.group:
             self.group_id = get_default_group()
-            
+
         if not self.id:
             try:
                 exif_exists = self.get_exif_data()
             except AttributeError:
                 pass
         super().save(*args, **kwargs)
-        
+
         # clear the cache
         #caching.instance_cache_clear(self, self.pk)
         #caching.cache_clear(PHOTOS_KEYWORDS_CACHE, key=self.pk)
@@ -802,7 +803,7 @@ class Image(OrderingBaseModel, ImageModel, TendenciBaseModel):
                 cache.delete_many(cache.get("photos_cache_set.%s" % self.pk))
                 cache.delete("photos_cache_set.%s" % self.pk)
 
-        
+
 
     def delete(self, *args, **kwargs):
         """
@@ -844,7 +845,7 @@ class Image(OrderingBaseModel, ImageModel, TendenciBaseModel):
             exif = img._getexif()
         except (AttributeError, OSError):
             return False
-        
+
         if self.exif_data is None:
             self.exif_data = {}
 
@@ -856,7 +857,7 @@ class Image(OrderingBaseModel, ImageModel, TendenciBaseModel):
 
         self.exif_data['lat'], self.exif_data['lng'] = self.get_lat_lng(
                                     self.exif_data.get('GPSInfo'))
-        
+
         self.exif_data['location'] = self.get_location_via_latlng(
                                             self.exif_data['lat'],
                                             self.exif_data['lng']
@@ -1055,7 +1056,7 @@ class Pool(models.Model):
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey()
-    created_at = models.DateTimeField(_('created_at'), default=datetime.now)
+    created_at = models.DateTimeField(_('created_at'), default=timezone.now)
 
     class Meta:
         # Enforce unique associations per object

@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.utils.translation import gettext_lazy as _
 from django.utils.safestring import mark_safe
+from django.utils.formats import date_format
 from django.utils.html import strip_tags
 
 from tendenci.apps.base.http import Http403
@@ -29,7 +30,7 @@ from tendenci.apps.memberships.utils import get_selected_demographic_field_names
 from tendenci.apps.memberships.middleware import ExceededMaxTypes
 from tendenci.apps.site_settings.utils import get_setting
 from tendenci.apps.perms.utils import has_perm
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 from tendenci.apps.event_logs.models import EventLog
 
 
@@ -173,7 +174,7 @@ def export_selected(modeladmin, request, queryset, export_fields='main_fields'):
     ids = queryset.values_list('id', flat=True)
     ids = ','.join([str(id) for id in ids])
     identifier = int(ttime.time())
-    run_membership_export(request, 
+    run_membership_export(request,
                           identifier=identifier,
                           export_fields=export_fields,
                           ids=ids)
@@ -212,7 +213,7 @@ def print_selected_invoices(modeladmin, request, queryset):
 
     ct_m = ContentType.objects.get_for_model(MembershipDefault)
     ct_mset = ContentType.objects.get_for_model(MembershipSet)
-    invoices = Invoice.objects.filter(Q(object_type=ct_m, object_id__in=queryset.values_list('id', flat=True)) | 
+    invoices = Invoice.objects.filter(Q(object_type=ct_m, object_id__in=queryset.values_list('id', flat=True)) |
                                       Q(object_type=ct_mset, object_id__in=queryset.values_list('membership_set_id', flat=True)))
     template_name = "invoices/print_invoices.html"
 
@@ -464,14 +465,14 @@ class MembershipDefaultAdmin(admin.ModelAdmin):
     get_invoice.short_description = 'Invoice'
 
     def get_create_dt(self, instance):
-        return instance.create_dt.strftime('%b %d, %Y, %I:%M %p')
+        return date_format(instance.create_dt, "DATETIME_FORMAT")
     get_create_dt.short_description = 'Created On'
 
     def get_approve_dt(self, instance):
         dt = instance.application_approved_dt
 
         if dt:
-            return dt.strftime('%b %d, %Y, %I:%M %p')
+            return date_format(dt, "DATETIME_FORMAT")
         return ''
     get_approve_dt.short_description = 'Approved On'
     get_approve_dt.admin_order_field = 'application_approved_dt'
@@ -480,7 +481,7 @@ class MembershipDefaultAdmin(admin.ModelAdmin):
         dt = instance.expire_dt
 
         if dt:
-            return dt.strftime('%m/%d/%Y')
+            return date_format(dt, "SHORT_DATE_FORMAT")
         return ''
     get_expire_dt.short_description = 'Expire Date'
     get_expire_dt.admin_order_field = 'expire_dt'

@@ -1,13 +1,10 @@
-from datetime import datetime
-from os.path import splitext
-
 from django import forms
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.forms.utils import ErrorList
-from django.template.defaultfilters import filesizeformat
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 from django.urls import reverse
 
 from tendenci.libs.tinymce.widgets import TinyMCE
@@ -166,8 +163,8 @@ class DirectoryForm(TendenciBaseForm):
                                                               ('premium', _('Premium')),))
     payment_method = forms.CharField(error_messages={'required': _('Please select a payment method.')})
 
-    activation_dt = forms.SplitDateTimeField(initial=datetime.now())
-    expiration_dt = forms.SplitDateTimeField(initial=datetime.now())
+    activation_dt = forms.SplitDateTimeField(initial=timezone.now())
+    expiration_dt = forms.SplitDateTimeField(initial=timezone.now())
 
     email = EmailVerificationField(label=_("Email"), required=False)
     email2 = EmailVerificationField(label=_("Email 2"), required=False)
@@ -310,8 +307,10 @@ class DirectoryForm(TendenciBaseForm):
                                                         ('inactive',_('Inactive')),
                                                         ('pending',_('Pending')),
                                                         ('paid - pending approval', _('Paid - Pending Approval')),)
+            self.is_associated_with_membership = self.instance.is_associated_with_membership()
         else:
             self.fields['body'].widget.mce_attrs['app_instance_id'] = 0
+            self.is_associated_with_membership = False
 
         if self.instance.logo:
             self.initial['logo'] = self.instance.logo
@@ -325,17 +324,21 @@ class DirectoryForm(TendenciBaseForm):
                 self.logo_extension_error_message = _('The photo must be of jpg, gif, or png image type.')
                 self.logo_mime_error_message = _('The photo is an invalid image. Try uploading another photo.')
         self.fields['logo'].validators = [FileValidator(allowed_extensions=ALLOWED_LOGO_EXT)]
-            
+
 
         if not self.user.profile.is_superuser:
             if 'status_detail' in self.fields: self.fields.pop('status_detail')
 
         if 'payment_method' in self.fields:
             self.fields['payment_method'] = forms.ChoiceField(widget=forms.RadioSelect, choices=get_payment_method_choices(self.user))
+
         if 'pricing' in self.fields:
-            self.fields['pricing'].choices = get_duration_choices(self.user)
-            if not self.user.is_superuser:
-                self.fields['pricing'].help_text = ''
+            if self.is_associated_with_membership:
+                del self.fields['pricing']
+            else:
+                self.fields['pricing'].choices = get_duration_choices(self.user)
+                if not self.user.is_superuser:
+                    self.fields['pricing'].help_text = ''
 
         self.fields['timezone'].initial = settings.TIME_ZONE
         self.fields['timezone'].required = False
@@ -343,7 +346,7 @@ class DirectoryForm(TendenciBaseForm):
         # cat and sub_cat
         self.fields['sub_cats'].queryset = DirectoryCategory.objects.exclude(parent=None)
         self.fields['sub_cats'].choices = _get_sub_cats_choices(directory=self.instance)
-        
+
         if self.user.profile.is_superuser:
             self.fields['sub_cats'].help_text = mark_safe('<a href="{}">{}</a>'.format(
                                         reverse('admin:directories_category_changelist'),
@@ -390,11 +393,11 @@ class DirectoryForm(TendenciBaseForm):
                 self.fields['cats'].help_text += mark_safe('<br /><a href="{}">{}</a>'.format(
                             reverse('admin:directories_category_changelist'),
                             _('Manage Categories'),))
- 
+
         # not to show list_type field if no premium price
         if not DirectoryPricing.objects.filter(status=True).filter(premium_price__gt=0).exists():
             if 'list_type' in self.fields:
-                del self.fields['list_type']      
+                del self.fields['list_type']
 
         if get_setting('site', 'global', 'stateusesdropdown'):
             self.fields['state'] = StateSelectField(label=self.fields['state'].label,

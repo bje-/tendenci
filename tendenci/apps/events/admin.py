@@ -1,5 +1,4 @@
 from csv import writer
-from datetime import datetime
 import time as ttime
 
 from django import forms
@@ -14,6 +13,7 @@ from django.utils.encoding import iri_to_uri
 from django.template.defaultfilters import slugify
 from django.utils.translation import gettext_lazy as _
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.forms import BaseInlineFormSet
 
@@ -30,7 +30,7 @@ from tendenci.apps.events.utils import iter_registrant_credits
 from tendenci.apps.event_logs.models import EventLog
 from tendenci.apps.site_settings.utils import delete_settings_cache, get_setting
 from tendenci.apps.perms.admin import TendenciBaseModelAdmin
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 from tendenci.apps.base.utils import tcurrency
 
 
@@ -266,7 +266,7 @@ class CustomRegFormAdmin(admin.ModelAdmin):
         if not form.has_regconf:
             raise Http404
         response = HttpResponse(content_type='text/csv')
-        csvname = '{}-{}.csv'.format(form.for_event, slugify(datetime.now().ctime()))
+        csvname = '{}-{}.csv'.format(form.for_event, slugify(timezone.now().ctime()))
         response['Content-Disposition'] = 'attachment; filename="%s"' % csvname
         csv = writer(response)
         # Write out the column names and store the index of each field
@@ -422,7 +422,7 @@ class CreditNameFilter(admin.SimpleListFilter):
         ceu_cats_list = []
         for ceu_cat in ceu_categories:
             ceu_cats_list.append((str(ceu_cat.id), f'{ceu_cat.parent.name} - {ceu_cat.name}'))
-                                    
+
         return ceu_cats_list
 
     def queryset(self, request, queryset):
@@ -455,7 +455,7 @@ class RegistrantCreditsAdmin(admin.ModelAdmin):
         """Release all credits"""
         queryset.update(released=True)
     release.short_description=_("Release selected credits")
-    
+
     def unrelease(self, request, queryset):
         """Un-Release all selected credits"""
         queryset.update(released=False)

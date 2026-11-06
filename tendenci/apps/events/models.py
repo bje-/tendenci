@@ -19,6 +19,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.urls import reverse
 from django.db.models.aggregates import Sum
+from django.utils import timezone
+from django.utils.formats import date_format
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import User
@@ -61,7 +63,7 @@ from tendenci.libs.boto_s3.utils import set_s3_file_permission
 from tendenci.libs.abstracts.models import OrderingBaseModel
 from tendenci.apps.trainings.models import Course, Certification
 from tendenci.apps.zoom import ZoomClient
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 
 # from south.modelsinspector import add_introspection_rules
 # add_introspection_rules([], [r'^timezone_field\.TimeZoneField'])
@@ -109,7 +111,7 @@ class Type(models.Model):
     certificate_template = models.CharField(max_length=100,
                                             blank=True, default='',
                                             choices=cert_tempt_choices)
-    
+
     objects = EventTypeManager()
 
     class Meta:
@@ -576,7 +578,7 @@ class RegistrationConfiguration(models.Model):
                     )
         if q_obj:
             pricings = pricings.filter(q_obj).distinct()
-            
+
         # check and update spots_taken
         for pricing in pricings:
             if pricing.registration_cap:
@@ -748,7 +750,7 @@ class RegConfPricing(OrderingBaseModel):
         if spots_taken != self.spots_taken:
             self.spots_taken = spots_taken
             self.save(update_fields=['spots_taken'])
-        
+
 
     @property
     def registration_has_started(self):
@@ -828,7 +830,7 @@ class RegConfPricing(OrderingBaseModel):
                         'allow_user': True,
                         'allow_member': True,
                         'groups__isnull': False}
-        
+
 
         filter_and = {'start_dt__lt': now,
                       'end_dt__gt': now,
@@ -865,7 +867,7 @@ class RegConfPricing(OrderingBaseModel):
                 filter_or.update({'groups__in': groups_id_list})
 
         return filter_and, filter_or
-   
+
     @property
     def tax_amount(self):
         if self.include_tax:
@@ -894,7 +896,7 @@ class RegConfPricing(OrderingBaseModel):
         if not user.is_anonymous:
             if user.is_superuser:
                 return True
- 
+
             if self.allow_user:
                 return True
 
@@ -924,7 +926,7 @@ class Registration(models.Model):
     reg_conf_price = models.ForeignKey(RegConfPricing, null=True, on_delete=models.SET_NULL)
 
     reminder = models.BooleanField(default=False)
-    
+
     key_contact_name = models.CharField(_('Training Contact'),
                                         max_length=150,
                                         blank=True,
@@ -940,7 +942,7 @@ class Registration(models.Model):
     need_reservation = models.BooleanField(default=False)
     nights = models.PositiveSmallIntegerField(default=0, blank=True,)
     begin_dt = models.DateField(_("Beginning on"), blank=True, null=True)
-    
+
 
     # TODO: Payment-Method must be soft-deleted
     # so that it may always be referenced
@@ -980,7 +982,7 @@ class Registration(models.Model):
         return f'Registration - {self.event.title}'
 
     @property
-    def group(self):   
+    def group(self):
         return self.event.primary_group
 
     @property
@@ -1006,7 +1008,7 @@ class Registration(models.Model):
                 return True
 
         return False
-    
+
     @property
     def can_admin_edit_child_events(self):
         """If admin user can edit child events, return True"""
@@ -1030,7 +1032,7 @@ class Registration(models.Model):
                     [committee] = group.committee_set.all()[:1] or [None]
                     if committee:
                         return committee.is_committee_leader(request_user)
-    
+
                     [chapter] = group.chapter_set.all()[:1] or [None]
                     if chapter:
                         return chapter.is_chapter_leader(request_user)
@@ -1048,7 +1050,7 @@ class Registration(models.Model):
 
     def not_paid(self):
         return self.invoice and self.invoice.balance > 0
-    
+
     def is_credit_card_payment(self):
         return self.payment_method and \
             (self.payment_method.machine_name).lower() == 'credit-card'
@@ -1063,7 +1065,7 @@ class Registration(models.Model):
             inv.id,
             self.event.pk,
             self.event.title,
-            self.event.start_dt.strftime('%Y-%m-%d'),
+            date_format(self.event.start_dt, "DATE_FORMAT"),
             inv.object_id,
         )
 
@@ -1377,7 +1379,7 @@ class Registration(models.Model):
         else:
             # generally non-table registration
             if self.registrant_set.filter(pricing__include_tax=True).exists():
-                for registrant in self.registrant_set.all(): 
+                for registrant in self.registrant_set.all():
                     price_tax_rate_list.append((registrant.amount, registrant.pricing.tax_rate))
 
         invoice.assign_tax(price_tax_rate_list, primary_registrant.user)
@@ -1387,7 +1389,7 @@ class Registration(models.Model):
             invoice.total = invoice.subtotal + invoice.tax + invoice.tax_2
         else: #tax inclucded
             invoice.total = invoice.subtotal
-            
+
         if invoice.gratuity:
             invoice.total += invoice.subtotal * invoice.gratuity
         invoice.balance = invoice.total
@@ -1411,7 +1413,7 @@ class Registration(models.Model):
         addons_text = ''
         if not self.event.has_addons:
             return ''
-        
+
         reg_addons = self.regaddon_set.all()
         if reg_addons:
             currency_symbol = get_setting('site', 'global', 'currencysymbol')
@@ -1454,10 +1456,10 @@ class Registration(models.Model):
                         'SITE_GLOBAL_SITEDISPLAYNAME': site_label,
                         'SITE_GLOBAL_SITEURL': site_url,
                         'self_reg8n': self_reg8n,
-    
+
                         'reg8n': self,
                         'registrants': registrants,
-    
+
                         'event': self.event,
                         'total_amount': self.invoice.total,
                         'is_paid': self.invoice.balance == 0,
@@ -1590,7 +1592,7 @@ class Registrant(models.Model):
         """Child events occurring on the dates Registrant is attending"""
         if not self.event.nested_events_enabled or not self.attendance_dates:
             return Event.objects.none()
-            
+
         return self.event.child_events.filter(start_dt__date__in=self.attendance_dates)
 
     @property
@@ -1618,7 +1620,7 @@ class Registrant(models.Model):
             self.event.has_child_events and
             not self.registration_closed
         )
-    
+
     def sub_event_datetimes(self, is_admin=False):
         """Returns list of start_dt for available sub events"""
         child_events = self.event.child_events if is_admin else self.available_child_events
@@ -1668,7 +1670,7 @@ class Registrant(models.Model):
         """Credits earned by name"""
         return '; '.join(self.released_cpe_credits.values_list(
             'event_credit__ceu_subcategory__name', flat=True))
-    
+
     @property
     def should_check_in_to_sub_event(self):
         """
@@ -1679,10 +1681,10 @@ class Registrant(models.Model):
         """
         return (
             self.event.nested_events_enabled and
-            self.checked_in and 
+            self.checked_in and
             self.event.has_child_events_today
         )
-    
+
     def is_valid_check_in(self, request, current_check_in):
         """
         Verifies check in is valid for registrant.
@@ -1695,29 +1697,29 @@ class Registrant(models.Model):
             error_message = _("You are not set to check in registrants to any Event")
             messages.add_message(request, messages.ERROR, error_message)
             return messages.ERROR, error_message
-                    
+
         # Check if registrant is able to check in to this event.
         # If not return an error.
         if not self.child_events.filter(child_event__pk=current_check_in).exists():
             error_message = _(f"{name} is not eligible to check in to {request.session.get('current_checkin_name')}")
-            messages.add_message(request, messages.ERROR, error_message)  
+            messages.add_message(request, messages.ERROR, error_message)
             return messages.ERROR, error_message
-        
+
         # Check if registrant is already checked in
         event = self.child_events.get(child_event__pk=current_check_in)
         if event.checked_in:
             error_message = _(f"{name} is already checked into {request.session.get('current_checkin_name')}")
-            messages.add_message(request, messages.INFO, error_message)  
-            return messages.WARNING, error_message 
-                
+            messages.add_message(request, messages.INFO, error_message)
+            return messages.WARNING, error_message
+
         # Check if registrant is currently able to check in to this event.
         # If not return an error.
         if not self.child_events_available_for_check_in.filter(child_event__pk=current_check_in).exists():
             error_message = _(f"{request.session.get('current_checkin_name')} isn't scheduled for today.")
-            messages.add_message(request, messages.ERROR, error_message)  
+            messages.add_message(request, messages.ERROR, error_message)
             return messages.ERROR, error_message
         return messages.SUCCESS, None
-    
+
     def try_get_check_in_event(self, request):
         """
         Tries to get check in event if it's valid.
@@ -1763,7 +1765,7 @@ class Registrant(models.Model):
                 continue
             events_visited.append(event.id)
 
-            date = event.start_dt.date().strftime('%B %d, %Y')
+            date = date_format(event.start_dt, "DATE_FORMAT")
 
             cpe_credits = self.get_cpe_credits_by_event(event)
             irs_credits = self.get_irs_credits_by_event(event)
@@ -1797,7 +1799,7 @@ class Registrant(models.Model):
         """PTIN entered in registration (if applicable)"""
         # first check user profile member_number_2
         if self.user:
-            if hasattr(self.user, 'profile'): 
+            if hasattr(self.user, 'profile'):
                 if self.user.profile.member_number_2:
                     return self.user.profile.member_number_2
 
@@ -1870,7 +1872,7 @@ class Registrant(models.Model):
         """
         return self.child_events.filter(
             checked_in=False,
-            child_event__start_dt__date=datetime.today()
+            child_event__start_dt__date=timezone.localdate() if settings.USE_TZ else datetime.today()
         )
 
     @property
@@ -2263,7 +2265,7 @@ class AssetsPurchase(models.Model):
             invoice.object_id = self.pk
 
         invoice.bill_to =  self.first_name + ' ' + self.last_name
-        
+
         invoice.bill_to_first_name = self.first_name
         invoice.bill_to_last_name = self.last_name
         invoice.bill_to_email = self.email
@@ -2330,7 +2332,7 @@ class AssetsPurchase(models.Model):
             reply_to = None
         site_label = get_setting('site', 'global', 'sitedisplayname')
         site_url = get_setting('site', 'global', 'siteurl')
-        
+
         if to_admin:
             admins = get_setting('module', 'events', 'admin_emails').split(',')
             recipients = [admin.strip() for admin in admins if admin.strip()]
@@ -2383,7 +2385,7 @@ class RegistrantChildEvent(models.Model):
         event = self.child_event
         return f'{event.title} {event.start_dt.time().strftime("%I:%M %p")} - ' \
                f'{event.end_dt.time().strftime("%I:%M %p")}'
-    
+
     def check_in(self):
         """Check in this registrant to this child event"""
         self.checked_in = True
@@ -2643,11 +2645,11 @@ class RecurringEvent(models.Model):
             repeat_type = 'month(s)'
         elif self.repeat_type == self.RECUR_YEARLY:
             repeat_type = 'year(s)'
-        ends_on = self.ends_on.strftime("%b %d %Y")
-        return _("Repeats every {frequency} {repeat_type} until {ends_on}".format(
-                            frequency=self.frequency,
-                            repeat_type=repeat_type,
-                            ends_on=ends_on))
+        ends_on = date_format(self.ends_on, "DATE_FORMAT")
+        return _("Repeats every %(frequency)s %(repeat_type)s until %(ends_on)s" % {
+                            'frequency': self.frequency,
+                            'repeat_type': repeat_type,
+                            'ends_on': ends_on})
 
 
 class EventPhoto(File):
@@ -2839,7 +2841,7 @@ class Event(TendenciBaseModel):
     all_day = models.BooleanField(default=False)
     start_dt = models.DateTimeField()
     end_dt = models.DateTimeField()
-    timezone = TimeZoneField(verbose_name=_('Time Zone'), default='US/Central', choices=get_timezone_choices(), max_length=100)
+    timezone = TimeZoneField(verbose_name=_('Time Zone'), default=settings.TIME_ZONE, choices=get_timezone_choices(), max_length=100)
     place = models.ForeignKey('Place', null=True, on_delete=models.SET_NULL)
     registration_configuration = models.OneToOneField('RegistrationConfiguration', null=True, editable=False, on_delete=models.CASCADE)
     mark_registration_ended = models.BooleanField(_('Registration Ended'), default=False)
@@ -2885,6 +2887,7 @@ class Event(TendenciBaseModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.private_slug = self.private_slug or self.make_slug()
+
         # Commenting it out - This line of code is causing an error on dumpdata:
         # "RecursionError: maximum recursion depth exceeded while calling a Python object"
         #self._original_repeat_of = self.repeat_of
@@ -2893,7 +2896,7 @@ class Event(TendenciBaseModel):
     def title_with_event_code(self):
         """Title prefixed with event_code"""
         return f'{self.event_code} - {self.title}' if self.event_code else self.title
-    
+
     @property
     def has_any_child_events(self):
         """Indicate whether event has child events, whether or not they are in the Event window"""
@@ -2916,14 +2919,14 @@ class Event(TendenciBaseModel):
             start_dt__gte=self.start_dt,
             end_dt__lte=self.end_dt,
         )
-    
+
     @property
     def child_events_today(self):
         """
         Child events available that are upcoming today.
         """
-        return self.child_events.filter(start_dt__date=datetime.today())
-    
+        return self.child_events.filter(start_dt__date=timezone.localdate() if settings.USE_TZ else datetime.today())
+
     def sessions_availble_to_switch_to(self, request):
         """Sessions available for check-in other than the one currently selected"""
         available_sessions = self.child_events_today.count()
@@ -2932,7 +2935,7 @@ class Event(TendenciBaseModel):
             self.child_events_today.filter(id=current_checkin).exists():
             available_sessions -= 1
         return available_sessions
-    
+
     @property
     def has_child_events_today(self):
         """Indicate whether event has child events today"""
@@ -2953,7 +2956,7 @@ class Event(TendenciBaseModel):
           }
         if self.image:
             data['image'] = site_url + reverse('file', args=[self.image.pk])
-        
+
         if self.place:
             if self.place.virtual:
                 data['eventAttendanceMode'] = "https://schema.org/OnlineEventAttendanceMode"
@@ -2995,7 +2998,7 @@ class Event(TendenciBaseModel):
                 data['offers'] = offers_list
 
         return data
-        
+
 
     def sub_event_datetimes(self, child_events=None):
         """Returns list of start_dt for available sub events"""
@@ -3030,7 +3033,7 @@ class Event(TendenciBaseModel):
                 sub_events_by_datetime[day] = OrderedDict()
 
             sub_events_by_datetime[day][time_slot] = child_events
-        
+
         return sub_events_by_datetime
 
     def get_child_events_by_permission(self, user=None, edit=False):
@@ -3112,7 +3115,9 @@ class Event(TendenciBaseModel):
     @property
     def group_location(self):
         """Location tied to group"""
-        return self.groups.first().entity.locations_location_entity.first()
+        group = self.groups.first()
+        return group and group.entity.locations_location_entity.first()
+
 
     @property
     def can_configure_credits(self):
@@ -3599,7 +3604,7 @@ class Event(TendenciBaseModel):
         """
         if not has_perm(request.user, 'events.view_registrant'):
             return
-        
+
         request.session["current_checkin"] = self.pk
         request.session["current_checkin_name"] = self.title
         messages.add_message(request, messages.SUCCESS, f"Ready to check in to {self.title}!")
@@ -3636,16 +3641,16 @@ class Event(TendenciBaseModel):
     def save(self, *args, **kwargs):
         # Set repeat_uuid in case we use this Event as a repeat. In that case,
         # all Events that are repeats of this one will have the same repeat_uuid.
-        # This allows us to identify all repeats, including the original event. 
+        # This allows us to identify all repeats, including the original event.
         # Without this set, we would not identify the original as being the same
         # as a repeated event.
-        
+
         # Commenting it out - the _original_repeat_of assigment is causing
-        # error on the command dumpdata: "RecursionError: maximum recursion depth exceeded while calling a Python object" 
+        # error on the command dumpdata: "RecursionError: maximum recursion depth exceeded while calling a Python object"
         # Check if repeat_of has been removed or switched to another sub event
         # if self.repeat_of != self._original_repeat_of:
         #     if not self.repeat_of:
-        #         # 1) removed - re-assign a new unique uuid 
+        #         # 1) removed - re-assign a new unique uuid
         #         self.repeat_uuid = uuid.uuid4()
         #     else:
         #         # 2) switched to another event - find the new repeat_uuid
@@ -3661,7 +3666,12 @@ class Event(TendenciBaseModel):
             set_s3_file_permission(self.image.file, public=self.is_public())
 
     def __str__(self):
-        return f'{self.title} ({self.start_dt.strftime("%m/%d/%Y")} - {self.end_dt.strftime("%m/%d/%Y")})'
+        if self.start_dt.date() == self.end_dt.date():
+            return f'{self.title} ({date_format(self.start_dt, "DATE_FORMAT")})'
+        else:
+            return (f'{self.title} '
+                    f'({date_format(self.start_dt, "DATE_FORMAT")} - '
+                    f'{date_format(self.end_dt, "DATE_FORMAT")})')
 
     @property
     def can_edit_attendance_dates_admin(self):
@@ -3673,7 +3683,7 @@ class Event(TendenciBaseModel):
             self.nested_events_enabled and
             self.has_child_events
         )
-    
+
     @property
     def has_addons(self):
         return Addon.objects.filter(
@@ -3692,18 +3702,18 @@ class Event(TendenciBaseModel):
     @property
     def check_in_reminders(self):
         """
-        Gets minutes after event start to send reminders for 
+        Gets minutes after event start to send reminders for
         switching check-in session.
         """
         return get_setting("module", "events", "reminder_minutes")
-    
+
     @property
     def check_in_reminders_due(self):
         """Time to show reminder to switch check-in session."""
         if not self.check_in_reminders:
             return None
         return timezone.now() >= self.start_dt + timedelta(minutes=int(self.check_in_reminders))
-    
+
     @property
     def should_show_check_in_reminder(self):
         """
@@ -3830,7 +3840,7 @@ class Event(TendenciBaseModel):
         """
         return Registration.objects.filter(event=self, canceled=False,
                                            invoice__discount_amount__gt=0).count()
-    
+
     @property
     def date(self):
         if self.start_dt and self.end_dt:
@@ -3954,20 +3964,33 @@ class Event(TendenciBaseModel):
     @property
     def display_start_date(self):
         """Start date formatted for confirmation messages"""
-        return self.start_dt.strftime("%m/%d/%Y")
+        return date_format(self.start_dt, "SHORT_DATE_FORMAT")
 
     def date_range(self, start_date, end_date):
         for n in range((end_date - start_date).days):
             yield start_date + timedelta(n)
+
+    def is_same_day(self, start_dt, end_dt):
+        """
+        Check if start_dt and end_dt are the same day
+        """
+        if settings.USE_TZ:
+            if self.timezone and self.timezone.key != settings.TIME_ZONE:
+                if timezone.is_aware(start_dt):
+                    start_dt = start_dt.astimezone(self.timezone)
+                if timezone.is_aware(end_dt):
+                    end_dt = end_dt.astimezone(self.timezone)
+
+        return start_dt.date() == end_dt.date()
+
 
     def date_spans(self):
         """
         Returns a list of date spans.
         e.g. s['start_dt'], s['end_dt'], s['same_date']
         """
-
         if self.on_weekend or self.has_any_child_events:
-            same_date = self.start_dt.date() == self.end_dt.date()
+            same_date = self.is_same_day(self.start_dt, self.end_dt)
             yield {'start_dt':self.start_dt, 'end_dt':self.end_dt, 'same_date':same_date}
             return
 
@@ -3982,12 +4005,12 @@ class Event(TendenciBaseModel):
                 end_dt = date.replace(hour=self.end_dt.hour, minute=self.end_dt.minute, second=self.end_dt.second)
 
             if start_dt and end_dt:
-                same_date = start_dt.date() == end_dt.date()
+                same_date = self.is_same_day(start_dt, end_dt)
                 yield {'start_dt':start_dt, 'end_dt':end_dt, 'same_date':same_date}
                 start_dt = end_dt = None  # reset
 
         if start_dt and not end_dt:
-            same_date = start_dt.date() == self.end_dt.date()
+            same_date = self.is_same_day(start_dt, self.end_dt)
             yield {'start_dt':start_dt, 'end_dt':self.end_dt, 'same_date':same_date}
 
     def get_child_events_days(self, params):
@@ -3996,17 +4019,18 @@ class Event(TendenciBaseModel):
         specificed parameters.
         """
         days = set()
+        date_func = timezone.localdate if settings.USE_TZ else datetime.date
 
         for event in self.child_events.filter(**params):
             spans = event.date_spans()
 
             for span in spans:
                 if span['same_date']:
-                    days.add(datetime.date(span['start_dt']))
+                    days.add(date_func(span['start_dt']))
                 else:
                     date_range = self.date_range(
                         span['start_dt'], span['end_dt'] + timedelta(days=1))
-                    date_range = [datetime.date(x) for x in date_range]
+                    date_range = [date_func(x) for x in date_range]
                     days.update(date_range)
 
         return sorted(days)
@@ -4037,7 +4061,7 @@ class Event(TendenciBaseModel):
 
     @property
     def event_dates_display(self):
-        return ' - '.join([x.strftime('%b %d, %Y') for x in self.full_event_days])
+        return ' - '.join([date_format(x, "DATE_FORMAT") for x in self.full_event_days])
 
     def get_spots_status(self):
         """
@@ -4241,7 +4265,7 @@ class EventGroup(models.Model):
     event = models.ForeignKey(Event, related_name="group_relations", on_delete=models.CASCADE)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     is_primary = models.BooleanField(default=True)
-    
+
     class Meta:
         unique_together = ['event', 'group']
 

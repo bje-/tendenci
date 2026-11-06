@@ -26,6 +26,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.utils.html import strip_tags
 from django.db.models.functions import Lower
 from django.utils import timezone
+from django.conf import settings
 # from django.views.generic import UpdateView
 # from django.utils.decorators import method_decorator
 from django.http import JsonResponse
@@ -84,21 +85,21 @@ def profile_photo_upload(request, id=None, template_name='profiles/upload_photo.
 
     if not profile.allow_edit_by(request.user):
         raise Http403
- 
+
     upload_form=PhotoUploadForm(request.POST or None,
                                      request.FILES or None,
                                      instance=profile,)
     if request.method == "POST":
         if upload_form.is_valid():
             profile = upload_form.save()
- 
+
             EventLog.objects.log()
             if is_ajax(request):
                 return JsonResponse({
                         'status': 'success',
                         'message': 'Profile Photo Uploaded Successfully'
                     }, status=200)
-            
+
             messages.success(request, _("Successfully uploaded your profile photo."))
             return HttpResponseRedirect(reverse('profile', args=[profile.user.username]))
         else:
@@ -111,7 +112,7 @@ def profile_photo_upload(request, id=None, template_name='profiles/upload_photo.
                             'status': 'failed',
                             'message': 'Invalid Photo: ' + err
                         }, status=200)
-     
+
     return render_to_resp(request=request, template_name=template_name,
         context={
             'upload_form': upload_form,
@@ -192,7 +193,7 @@ def index(request, username='', template_name="profiles/index.html"):
             auto_renew_is_set = True
 
     registrations = Registrant.objects.filter(user=user_this, registration__event__end_dt__gte=timezone.now())
-    
+
     if request.user.is_superuser:
         # a list of upcoming events (up to 10) that this user has not registered yet (or canceled)
         upcoming_events = Event.objects.exclude_children().filter(start_dt__gt=timezone.now())
@@ -819,8 +820,10 @@ def password_change_done(request, id, template_name='registration/custom_passwor
 ### REPORTS ###########################################################################
 
 def _user_events(from_date):
+    if settings.USE_TZ:
+        from_date = timezone.make_aware(from_date)
     return User.objects.all()\
-                .filter(eventlog__create_dt__gte=timezone.make_aware(from_date))\
+                .filter(eventlog__create_dt__gte=from_date)\
                 .annotate(event_count=Count('eventlog__pk'))
 
 @staff_member_required

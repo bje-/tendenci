@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.db.models.query_utils import Q
 from django.template import engines
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone
 from django.contrib.auth.models import User, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django import forms
@@ -236,7 +237,7 @@ class MembershipType(OrderingBaseModel, TendenciBaseModel):
                         # if they are renewing before expiration, the new expiration date
                         # should start from the previous expiration date instead of the renew date
                         if isinstance(previous_expire_dt, datetime):
-                            if previous_expire_dt > now:
+                            if previous_expire_dt > now or previous_expire_dt > renew_dt:
                                 return previous_expire_dt + relativedelta(years=self.period)
 
                         return renew_dt + relativedelta(years=self.period)
@@ -399,8 +400,8 @@ class MembershipSet(models.Model):
                 invoice.discount_amount = discount_amount
                 price -= discount_amount
 
-        if is_positive_and_not_zerotype(donation_amount) and donation_apply_tax: 
-            # add the donation amount to the price so that 
+        if is_positive_and_not_zerotype(donation_amount) and donation_apply_tax:
+            # add the donation amount to the price so that
             # it can calculate the tax for donation as well
             price += donation_amount
 
@@ -423,7 +424,7 @@ class MembershipSet(models.Model):
             invoice.subtotal += donation_amount
             invoice.total += donation_amount
             invoice.balance += donation_amount
-        
+
         membership = memberships[0]
         if membership.renewal:
             membership.assign_payment_credits(invoice)
@@ -434,7 +435,7 @@ class MembershipSet(models.Model):
         invoice.save()
         self.invoice = invoice
         self.save()
-        
+
         self.invoice.object_id = self.pk
         self.invoice.save()
 
@@ -585,6 +586,7 @@ class MembershipDefault(TendenciBaseModel):
     promotion_code = models.CharField(max_length=50, blank=True, default='')
     directory = models.ForeignKey(Directory, blank=True, null=True, on_delete=models.SET_NULL)
     groups = models.ManyToManyField(Group)
+    status_detail = models.CharField(max_length=50, default='pending')
 
     membership_set = models.ForeignKey(MembershipSet, blank=True, null=True, on_delete=models.CASCADE)
     app = models.ForeignKey("MembershipApp", null=True, on_delete=models.SET_NULL)
@@ -664,7 +666,7 @@ class MembershipDefault(TendenciBaseModel):
             value = t % ('inactive','Inactive')
 
         return mark_safe(value)
-    
+
     def delete(self, **kwargs):
         # Make sure profile member number and group are removed before deleting this membership
         self.expire(self.user)
@@ -920,8 +922,11 @@ class MembershipDefault(TendenciBaseModel):
                       }
             chapter_membership = ChapterMembership.objects.create(**params)
             chapter_membership.save_invoice(creator=self.creator)
-            # set pending
-            chapter_membership.pend()
+            if membership_type.require_approval:
+                # set pending
+                chapter_membership.pend()
+            else:
+                chapter_membership.approve(request_user=request.user)
             chapter_membership.save()
             # send email to admin
             chapter_membership.email_admin_join_notice(request)
@@ -932,7 +937,7 @@ class MembershipDefault(TendenciBaseModel):
                 if renewed_chapter_membership:
                     renewed_chapter_membership.approve(request_user=request.user)
                     renewed_chapter_membership.email_admin_renew_notice(request)
-            
+
 
     def auto_apply_chapter_memberships(self, request):
         """
@@ -1048,16 +1053,17 @@ class MembershipDefault(TendenciBaseModel):
                 # no need to check if group.is_member because group.add_user will check it
                 if group:
                     group.add_user(self.user)
-                
+
             if get_setting('module',  'memberships', 'adddirectory'):
                 # add a directory entry for this membership
                 self.add_directory()
         else:
             # directory - set to active on renewal
             if self.directory:
+                self.directory.expiration_dt = self.expire_dt
                 if self.directory.status_detail != 'active':
                     self.directory.status_detail = 'active'
-                    self.directory.save()
+                self.directory.save()
 
         # auto-apply chapter membership, if enabled
         if request and self.chapter:
@@ -2155,6 +2161,12 @@ class MembershipDefault(TendenciBaseModel):
                 # bypass the signal on save so that we can create customer profile from trans_id
                 rp.customer_profile_id = kwargs.get('customer_profile_id', '')
                 rp.save()
+            if 'customer_profile_id' in kwargs and not rp.customer_profile_id:
+                rp.customer_profile_id = kwargs['customer_profile_id']
+                rp.save(update_fields=['customer_profile_id'])
+            if 'platform' in kwargs and rp.platform != kwargs['platform']:
+                rp.platform = kwargs['platform']
+                rp.save(update_fields=['platform'])
             if rp.platform == 'authorizenet':
                 if not rp.customer_profile_id or rp.customer_profile_id == 'TBD':
                     trans_id = kwargs.get('trans_id', None)
@@ -2266,7 +2278,7 @@ class MembershipDefault(TendenciBaseModel):
             invoice_link = ''
         return {'membership_link': '{}{}'.format(site_url, self.get_absolute_url()),
                   'directory_url': directory_url,
-                  'directory_edit_url': directory_edit_url, 
+                  'directory_edit_url': directory_edit_url,
                   'membership_type': self.membership_type.name,
                   'invoice_link':  invoice_link,}
 
@@ -2768,22 +2780,22 @@ class MembershipApp(TendenciBaseModel):
         params['slug'] = params['slug'][:200]
         params['name'] = params['name'][:155]
         app_cloned = self.__class__.objects.create(**params)
-        
+
         # ud fields - avoid using the same ud fields for cloned app
         all_ud_names = ['ud%d' % (x+1) for x in range(30)]
         used_ud_field_names = [field.field_name for field in MembershipAppField.objects.filter(field_name__in=all_ud_names, display=True)]
         available_ud_field_names = [name for name in all_ud_names if name not in used_ud_field_names]
-        
+
         this_app_ud_names = [field.field_name for field in self.fields.filter(field_name__in=all_ud_names, display=True)]
         ud_replace_with = available_ud_field_names[:len(this_app_ud_names)]
-        
+
         # clone fiellds
         fields = self.fields.all()
         for field in fields:
             if field.field_name in this_app_ud_names:
                 field.display = False
             elif field.field_name in ud_replace_with:
-                field.display = True 
+                field.display = True
             field.clone(app_cloned)
 
         return app_cloned

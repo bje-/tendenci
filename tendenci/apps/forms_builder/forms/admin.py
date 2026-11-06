@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from django.db import models
 from django.utils.text import unescape_string_literal
 from django.urls import re_path
@@ -13,10 +11,11 @@ from django.shortcuts import get_object_or_404
 from django.template.defaultfilters import slugify
 from django.utils.translation import gettext_lazy as _
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 
 from tendenci.apps.perms.admin import TendenciBaseModelAdmin
 from tendenci.apps.site_settings.utils import get_setting
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 from tendenci.apps.forms_builder.forms.models import Form, Field, FieldEntry, Pricing, FormEntry
 from tendenci.apps.forms_builder.forms.forms import FormAdminForm, FormForField, PricingForm
 from tendenci.apps.forms_builder.forms.utils import form_entries_to_csv_writer, iter_form_entries
@@ -167,9 +166,9 @@ class FormAdmin(TendenciBaseModelAdmin):
         response = StreamingHttpResponse(
             streaming_content=(iter_form_entries(form)),
             content_type='text/csv',)
-        csvname = '{}-{}.csv'.format(form.slug, slugify(datetime.now().ctime()))
+        csvname = '{}-{}.csv'.format(form.slug, slugify(timezone.now().ctime()))
         response['Content-Disposition'] = 'attachment; filename="%s"' % csvname
-        
+
         return response
 
     def file_view(self, request, field_entry_id):
@@ -206,16 +205,16 @@ class FormEntryAdmin(admin.ModelAdmin):
 
     def first_name(self, instance):
         return instance.get_first_name()
-    
+
     def last_name(self, instance):
         return instance.get_last_name()
-    
+
     def email(self, instance):
         return instance.get_email_address()
 
     def has_add_permission(self, request):
         return False
-    
+
     def change_view(self, request, object_id, form_url='',
                     extra_context=None):
         return HttpResponseRedirect(
@@ -229,7 +228,7 @@ class FormEntryAdmin(admin.ModelAdmin):
                 search_term = unescape_string_literal(search_term)
             queryset = queryset.filter(models.Q(id__in=(FieldEntry.objects.filter(value__icontains=search_term).values_list('entry_id', flat=True))) |
                                        models.Q(form__title__icontains=search_term))
-            
+
             return queryset, may_have_duplicates
 
         return super().get_search_results(request, queryset, search_term)

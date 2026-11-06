@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import subprocess
 import time
 import string
@@ -17,6 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.html import escape
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
+from django.db.models.query_utils import Q
 
 from tendenci.libs.utils import python_executable
 from tendenci.apps.site_settings.utils import get_setting
@@ -49,7 +50,7 @@ def details(request, slug=None, template_name="directories/view.html"):
     if has_view_perm(request.user, 'directories.view_directory', directory) \
          or directory.has_membership_with(request.user):
         EventLog.objects.log(instance=directory)
-        
+
         if get_setting('module', 'directories', 'affiliates_enabled'):
             affiliates_list = directory.get_list_affiliates()
             parents_list = directory.get_list_parent_directories()
@@ -67,7 +68,7 @@ def details(request, slug=None, template_name="directories/view.html"):
                 if corp_profile:
                     # individual memberships - only the first 50
                     memberships = corp_profile.get_active_indiv_memberships()[:50]
-        
+
         return render_to_resp(request=request, template_name=template_name,
             context={'directory': directory,
                      'affiliates_list': affiliates_list,
@@ -128,8 +129,9 @@ def search(request, my_directories_only=False, template_name="directories/search
             directories = directories.filter( **search_filter)
 
     if not request.user.is_superuser:
-        directories = directories.exclude(activation_dt__gt=timezone.now())
-        directories = directories.exclude(expiration_dt__lt=timezone.now())
+        now = timezone.now()
+        directories = directories.filter(Q(expiration_dt__isnull=True) | Q(expiration_dt__gt=now))
+        directories = directories.exclude(activation_dt__gt=now)
 
     directories = directories.order_by('headline')
 
@@ -220,8 +222,6 @@ def add(request, form_class=DirectoryForm, template_name="directories/add.html")
                 directory.payment_method = 'paid - cc'
             if directory.payment_method:
                 directory.payment_method = directory.payment_method.lower()
-            if not directory.requested_duration:
-                directory.requested_duration = 30
             if not directory.list_type:
                 directory.list_type = 'regular'
 
@@ -233,8 +233,8 @@ def add(request, form_class=DirectoryForm, template_name="directories/add.html")
                 directory.status_detail = 'pending'
             else:
                 directory.activation_dt = timezone.now()
-                # set the expiration date
-                directory.expiration_dt = directory.activation_dt + timedelta(days=directory.requested_duration)
+                # set the expiration date (None for an "Unlimited" duration)
+                directory.expiration_dt = directory.get_duration_expiration_dt()
 
             directory = update_perms_and_save(request, form, directory)
             form.save_m2m()
@@ -315,13 +315,10 @@ def edit(request, id, form_class=DirectoryForm, template_name="directories/edit.
                 except OSError:
                     pass
                     #directory.logo = None
-            
+
             # set the expiration date in case activation date and/or requested_duration have changed
-            if directory.activation_dt and directory.requested_duration:
-                directory.expiration_dt = directory.activation_dt + timedelta(days=directory.requested_duration)
-            else:
-                # If activation date or requested duration are empty, expiration date should also be empty
-                directory.expiration_dt = None
+            # If activation date or requested duration are empty, expiration date should also be empty
+            directory.expiration_dt = directory.get_duration_expiration_dt()
 
             # update all permissions and save the model
             directory = update_perms_and_save(request, form, directory)
@@ -553,15 +550,15 @@ def pending(request, template_name="directories/pending.html"):
 #     directory = get_object_or_404(Directory, pk=id)
 #     if directory.has_membership_with(request.user):
 #         if not directory.activation_dt:
-#             directory.activation_dt = datetime.now()
+#             directory.activation_dt = timezone.now()
 #         directory.status = True
 #         directory.status_detail = 'active'
 #         directory.allow_anonymous_view = True
 #         directory.save()
-# 
+#
 #         msg_string = 'Successfully published %s' % directory
 #         messages.add_message(request, messages.SUCCESS, _(msg_string))
-# 
+#
 #     return HttpResponseRedirect(reverse('directory', args=[directory.slug]))
 
 
@@ -576,9 +573,12 @@ def approve(request, id, template_name="directories/approve.html"):
 
     directory = get_object_or_404(Directory, pk=id)
 
+    if not directory.is_pending():
+        return HttpResponseRedirect(reverse('directory', args=[directory.slug]))
+
     if request.method == "POST":
         directory.activation_dt = timezone.now()
-        directory.expiration_dt = directory.activation_dt + timedelta(days=directory.requested_duration)
+        directory.expiration_dt = directory.get_expiration_dt()
         directory.allow_anonymous_view = True
         directory.status = True
         directory.status_detail = 'active'
@@ -598,7 +598,7 @@ def approve(request, id, template_name="directories/approve.html"):
         # send email notification to user
         recipients = directory.get_owner_emails_list()
         if recipients:
-            notification.send_emails(recipients, 
+            notification.send_emails(recipients,
                 'directory_approved_user_notice', {
                         'object': directory,
                         'request': request,})
@@ -638,8 +638,6 @@ def renew(request, id, form_class=DirectoryRenewForm, template_name="directories
 
             if directory.payment_method:
                 directory.payment_method = directory.payment_method.lower()
-            if not directory.requested_duration:
-                directory.requested_duration = 30
             if not directory.list_type:
                 directory.list_type = 'regular'
 
@@ -651,8 +649,8 @@ def renew(request, id, form_class=DirectoryRenewForm, template_name="directories
                 directory.status_detail = 'pending'
             else:
                 directory.activation_dt = timezone.now()
-                # set the expiration date
-                directory.expiration_dt = directory.activation_dt + timedelta(days=directory.requested_duration)
+                # set the expiration date (None for an "Unlimited" duration)
+                directory.expiration_dt = directory.get_duration_expiration_dt()
                 # mark renewal as not sent for new exp date
                 directory.renewal_notice_sent = False
             # update all permissions and save the model

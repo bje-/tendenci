@@ -31,7 +31,7 @@ from tendenci.apps.files.managers import FileManager
 from tendenci.apps.base.utils import correct_filename
 from tendenci.apps.categories.models import CategoryItem
 from tendenci.apps.site_settings.utils import get_setting
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 
 
 def file_directory(instance, filename):
@@ -66,7 +66,7 @@ class File(TendenciBaseModel):
     is_public = models.BooleanField(default=True)
     group = models.ForeignKey(
         Group, null=True, default=None, on_delete=models.SET_NULL)
-    tags = TagField(null=True, blank=True)
+    tags = TagField(blank=True)
     categories = GenericRelation(CategoryItem, object_id_field="object_id", content_type_field="content_type")
 
     file_cat = models.ForeignKey('FilesCategory', verbose_name=_("Category"),
@@ -136,7 +136,7 @@ class File(TendenciBaseModel):
             self.guid = str(uuid.uuid4())
             created = True
         self.f_type = self.type()
-        
+
         if not self.group:
             self.group_id = get_default_group()
 

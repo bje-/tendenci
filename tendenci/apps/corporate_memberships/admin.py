@@ -1,7 +1,9 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.contrib.admin import SimpleListFilter
+from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _
 from django.urls import path, re_path
 from django.shortcuts import get_object_or_404, redirect
@@ -30,7 +32,7 @@ from tendenci.apps.base.utils import tcurrency
 
 from tendenci.apps.event_logs.models import EventLog
 from tendenci.apps.site_settings.utils import get_setting
-from tendenci.apps.theme.templatetags.static import static
+from tendenci.apps.theme.templatetags.tendenci_static import static
 from tendenci.apps.perms.utils import update_perms_and_save
 
 
@@ -88,7 +90,7 @@ class CorporateMembershipTypeAdmin(TendenciBaseModelAdmin):
               instance.membership_type.name)
     get_membership_type.short_description = _('Membership Type (Individual)')
     get_membership_type.admin_order_field = 'membership_type'
-    
+
     @mark_safe
     def reps_groups(self, instance):
         reps_groups_links = ''
@@ -379,21 +381,21 @@ class CorpMembershipAdmin(TendenciBaseModelAdmin):
     def join_date(self, instance):
         if not instance.join_dt:
             return ''
-        return instance.join_dt.strftime('%m-%d-%Y')
+        return date_format(instance.join_dt, 'SHORT_DATE_FORMAT')
     join_date.short_description = _('Join Date')
     join_date.admin_order_field = 'join_dt'
 
     def renew_date(self, instance):
         if not instance.renew_dt:
             return ''
-        return instance.renew_dt.strftime('%m-%d-%Y')
+        return date_format(instance.renew_dt, 'SHORT_DATE_FORMAT')
     renew_date.short_description = _('Renew Date')
     renew_date.admin_order_field = 'renew_dt'
 
     def expire_date(self, instance):
         if not instance.expiration_dt:
             return ''
-        return instance.expiration_dt.strftime('%m-%d-%Y')
+        return date_format(instance.expiration_dt, 'SHORT_DATE_FORMAT')
     expire_date.short_description = _('Expiration Date')
     expire_date.admin_order_field = 'expiration_dt'
 
@@ -480,7 +482,7 @@ class NoticeAdmin(admin.ModelAdmin):
         return '<a href="%s%s?notice_id=%d">View logs</a>' % (get_setting('site', 'global', 'siteurl'),
                          reverse('corporate_membership.notice.log.search'), obj.id)
 
-    
+
     list_display_links  = ['notice_name']
     list_filter = ['notice_type', 'status_detail']
 
@@ -499,7 +501,7 @@ class NoticeAdmin(admin.ModelAdmin):
             or get_setting('module', 'memberships', 'taxrateuseregions')):
             list_display += ['region', 'excluded_regions']
         return list_display
-        
+
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = (
@@ -513,7 +515,7 @@ class NoticeAdmin(admin.ModelAdmin):
             fieldsets[0][1]['fields'].remove('region')
             fieldsets[0][1]['fields'].remove('regions_to_exclude')
         return fieldsets
-        
+
 
     def save_model(self, request, object, form, change):
         instance = form.save(commit=False)
@@ -738,7 +740,7 @@ class CorpProfileAdmin(TendenciBaseModelAdmin):
     form = CorpProfileAdminForm
 
     def get_list_display(self, request):
-        list_display = ['name',]
+        list_display = ['id', 'name',]
         if get_setting('module', 'trainings', 'enabled'):
             list_display.append('show_transcripts')
         return list_display
@@ -760,7 +762,7 @@ class CorpProfileAdmin(TendenciBaseModelAdmin):
         instance = form.save(commit=False)
         instance.owner = request.user
         update_perms_and_save(request, form, instance)
-        
+
         form.save_logo(instance, request.user)
         return instance
 
@@ -814,13 +816,13 @@ class CorpMembershipRepAdmin(admin.ModelAdmin):
     def iter_reps(self, corp_reps):
         import csv
         from tendenci.apps.base.utils import Echo
-        field_names = ['ID', 'Corp Profile', 'Rep Name', 'Rep Email', 
+        field_names = ['ID', 'Corp Profile', 'Rep Name', 'Rep Email',
                        'Is dues rep?', 'Is member rep?',
                        'Expiration Date', 'Status detail']
         writer = csv.DictWriter(Echo(), fieldnames=field_names)
         # write headers
         yield writer.writerow(dict(zip(field_names, field_names)))
-    
+
         for corp_rep in corp_reps:
             rep_name = corp_rep.user.get_full_name()
             if not rep_name:
@@ -842,13 +844,13 @@ class CorpMembershipRepAdmin(admin.ModelAdmin):
         """
         import time as ttime
         from django.http import StreamingHttpResponse
-    
+
         response = StreamingHttpResponse(
             streaming_content=(self.iter_reps(queryset)),
             content_type='text/csv',)
         response['Content-Disposition'] = f'attachment;filename=corp_reps_export_{ttime.time()}.csv'
         return response
-    
+
     export_selected.short_description = 'Export selected'
 
     def get_queryset(self, request):
@@ -857,7 +859,7 @@ class CorpMembershipRepAdmin(admin.ModelAdmin):
         """
         return super().get_queryset(request
                     ).filter(corp_profile__status=True)
-    
+
     @mark_safe
     def profile(self, instance):
         return '<a href="{}">{}</a>'.format(
@@ -888,12 +890,12 @@ class CorpMembershipRepAdmin(admin.ModelAdmin):
             return corp_membership.status_detail.capitalize()
         return ''
     status_detail.short_description = 'Status Detail'
-    
+
     def expiration_date(self, instance):
         corp_membership = instance.corp_profile.corp_membership
         if not corp_membership or not corp_membership.expiration_dt:
             return ''
-        return corp_membership.expiration_dt.strftime('%Y-%m-%d')
+        return date_format(corp_membership.expiration_dt, 'SHORT_DATE_FORMAT')
     expiration_date.short_description = _('Expiration Date')
 
 
