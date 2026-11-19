@@ -2,7 +2,7 @@
 {% block extra_body %}
 
 <script type="text/javascript">
-    ZoomMtg.setZoomJSLib('https://source.zoom.us/3.9.0/lib', '/av')
+    ZoomMtg.setZoomJSLib('https://source.zoom.us/{{ zoom_sdk_version }}/lib', '/av')
     ZoomMtg.preLoadWasm()
     ZoomMtg.prepareWebSDK()
     // loads language files, also passes any error messages to the ui

@@ -3221,7 +3221,6 @@ class Event(TendenciBaseModel):
 
         return json.dumps({
             'signature': self.zoom_jwt_token,
-            'sdkKey': self.zoom_api_configuration.sdk_client_id,
             'meetingNumber':  self.zoom_meeting_number,
             'passWord': self.zoom_meeting_passcode,
             'tk': '',
